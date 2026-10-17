@@ -1,0 +1,12 @@
+{
+  "domain": "samsungtag2",
+  "name": "Samsung Tag2 (Sidecar)",
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/granthuxley/smarttag2 (local repo)",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "requirements": [],
+  "version": "0.1.0"
+}

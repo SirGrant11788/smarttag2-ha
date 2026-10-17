@@ -1,0 +1,16 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Samsung Tag2 sidecar",
+        "description": "URL of the token sidecar on the Docker VM. The sidecar holds the Samsung session; Home Assistant stores no secrets.",
+        "data": {
+          "sidecar_url": "Sidecar URL"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Sidecar unreachable — check the Docker VM is up and the URL/port."
+    }
+  }
+}
