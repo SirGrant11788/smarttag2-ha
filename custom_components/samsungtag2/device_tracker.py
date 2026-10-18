@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from homeassistant.components.device_tracker.config_entry import TrackerEntity
 from homeassistant.components.device_tracker.const import SourceType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import slugify
 
 from .const import DOMAIN
 
@@ -38,12 +39,21 @@ class TagDeviceTracker(CoordinatorEntity, TrackerEntity):
         super().__init__(coordinator)
         self._device_id = device_id
         self._attr_unique_id = f"{DOMAIN}_tracker_{device_id}"
-        self._attr_name = name
+        # `name` is the per-tag friendly name resolved by the coordinator
+        # (Samsung app label, e.g. 'Max' / 'Tag Logan Car Key'). Render it
+        # directly so the map/list show the label, never 'Tag2(UWB)'.
+        self._attr_name = name or device_id
+        # First-registration entity_id slug: device_tracker.max,
+        # device_tracker.tag_logan_car_key. Existing registry entries keep
+        # their entity_id — suggested_object_id only applies at registration.
+        self._attr_suggested_object_id = (slugify(name) if name else slugify(device_id))
+        tag_state = ((coordinator.data or {}).get("tags", {})
+                     .get(device_id, {}))
         self._attr_device_info = {
             "identifiers": {(DOMAIN, device_id)},
-            "name": name,
+            "name": name or device_id,
             "manufacturer": "Samsung",
-            "model": "SmartTag2",
+            "model": tag_state.get("device_model") or "SmartTag2",
         }
 
     def _tag(self) -> dict:
@@ -79,6 +89,10 @@ class TagDeviceTracker(CoordinatorEntity, TrackerEntity):
         tag = self._tag()
         return {
             "device_id": self._device_id,
+            "friendly_name": tag.get("friendly_name"),
+            "samsung_name": tag.get("samsung_name"),
+            "device_model": tag.get("device_model"),
+            "d2d_status": tag.get("d2d_status"),
             "location_found": tag.get("location_found", False),
             "last_seen_ms": tag.get("gps_date"),
             "last_seen": _gps_date(tag.get("gps_date")),

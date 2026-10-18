@@ -4,6 +4,7 @@ from __future__ import annotations
 from homeassistant.components.sensor import (SensorDeviceClass, SensorEntity,
                                              SensorStateClass)
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import slugify
 
 from .const import DOMAIN
 
@@ -29,12 +30,16 @@ class TagBatterySensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         self._device_id = device_id
         self._attr_unique_id = f"{DOMAIN}_battery_{device_id}"
-        self._attr_name = f"{name} Battery"
+        self._attr_name = f"{name or device_id} Battery"
+        # First-registration entity_id: sensor.<label_slug>_battery.
+        self._attr_suggested_object_id = f"{slugify(name) if name else slugify(device_id)}_battery"
+        tag_state = ((coordinator.data or {}).get("tags", {})
+                     .get(device_id, {}))
         self._attr_device_info = {
             "identifiers": {(DOMAIN, device_id)},
-            "name": name,
+            "name": name or device_id,
             "manufacturer": "Samsung",
-            "model": "SmartTag2",
+            "model": tag_state.get("device_model") or "SmartTag2",
         }
 
     def _tag(self) -> dict:

@@ -47,7 +47,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = {
         "coordinator": coordinator,
         "client": client,
-        "tags": {dev_id: state.get("name")
+        # {device_id: friendly_name} — the per-tag Samsung app label
+        # (item.label from /tag/{uuid}), resolved by the coordinator.
+        "tags": {dev_id: state.get("friendly_name") or dev_id
                  for dev_id, state in (coordinator.data or {}).get("tags", {}).items()},
     }
 

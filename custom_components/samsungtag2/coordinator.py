@@ -1,4 +1,5 @@
-"""DataUpdateCoordinator: polls sidecar /jwt + /tags (+ geolocations).
+"""DataUpdateCoordinator: polls sidecar /jwt + /tags (+ per-tag /tag detail
+and geolocations).
 
 Staleness semantics (spec.md G3):
 - Sidecar reachable but bank stale (/jwt 503) → coordinator SUCCEEDS with
@@ -63,6 +64,26 @@ def extract_lat_lon(geo: dict) -> tuple[float | None, float | None]:
     return _f(geo.get("latitude")), _f(geo.get("longitude"))
 
 
+def resolve_friendly_name(detail: dict, device: dict) -> str:
+    """Per-tag human name: the Samsung app's own label first.
+
+    Live-verified 2026-10-18 against GET /tag/{uuid} (item.label):
+    'Tag Logan Car Key' — while item.name is Samsung's generic
+    ('Tag2(UWB)') and the /tags list's vendor.modelName is the useless
+    'EI-T5600'. Fallback order: label → name → 'SmartTag2 <suffix>' where
+    the suffix is the tail of the tag's identifier (or deviceId) so two
+    unnamed tags can never collide into the same device/entity name.
+    """
+    label = (detail.get("label") or "").strip()
+    if label:
+        return label
+    short = (detail.get("name") or "").strip()
+    if short:
+        return short
+    tail = str(device.get("identifier") or device.get("deviceId") or "")[-6:]
+    return f"SmartTag2 {tail}" if tail else "SmartTag2"
+
+
 class SamsungTag2Coordinator(DataUpdateCoordinator):
     """Fetch token health + per-tag state from the sidecar every 60s."""
 
@@ -117,16 +138,33 @@ class SamsungTag2Coordinator(DataUpdateCoordinator):
         except SidecarError as err:
             raise UpdateFailed(str(err)) from err
 
-        # 3) per-tag state
+        # 3) per-tag state — the /tag/{uuid} DETAIL payload is authoritative
+        # for the human name (item.label) and the battery enum (item.battery);
+        # the /tags list is only the fallback. Sidecar caches both upstream
+        # GETs, so the extra per-tag call costs no extra Samsung traffic and
+        # the coordinator stays stateless between its 60s polls.
         tags: dict[str, dict] = {}
         for device in devices:
             device_id = device.get("deviceId") or ""
             if not device_id:
                 continue
-            name = self._device_name(device)
+            try:
+                detail = await self.hass.async_add_executor_job(
+                    self.client.get_tag, device_id)
+                if not isinstance(detail, dict):
+                    detail = {}
+            except (SidecarStale, SidecarConnectionError, SidecarError) as err:
+                detail = {}
+                _LOGGER.debug("tag detail failed for %s: %r", device_id, err)
+            metadata = device.get("metadata") or {}
             state = {
                 "device_id": device_id,
-                "name": name,
+                "friendly_name": resolve_friendly_name(detail, device),
+                "samsung_name": detail.get("name"),
+                "device_model": (detail.get("deviceModel")
+                                 or (metadata.get("vendor") or {}).get("modelName")
+                                 or "SmartTag2"),
+                "d2d_status": detail.get("d2dStatus"),
                 "update_success": False,
                 "location_found": False,
                 "latitude": None,
@@ -134,8 +172,11 @@ class SamsungTag2Coordinator(DataUpdateCoordinator):
                 "accuracy": None,
                 "gps_date": None,
                 "battery": parse_battery(
-                    (device.get("metadata") or {}).get("battery", {}).get("level")),
+                    (metadata.get("battery") or {}).get("level")),
             }
+            detail_battery = parse_battery(detail.get("battery"))
+            if detail_battery is not None:
+                state["battery"] = detail_battery
             try:
                 geo_payload = await self.hass.async_add_executor_job(
                     self.client.get_geolocation, device_id)
@@ -164,18 +205,9 @@ class SamsungTag2Coordinator(DataUpdateCoordinator):
             geo_battery = parse_battery(geo.get("battery"))
             if geo_battery is not None:
                 state["battery"] = geo_battery
+            if state["d2d_status"] is None and geo.get("d2dStatus") is not None:
+                state["d2d_status"] = geo["d2dStatus"]
             state["update_success"] = True
             tags[device_id] = state
 
         return {"token_health": token_health, "tags": tags}
-
-    @staticmethod
-    def _device_name(device: dict) -> str:
-        metadata = device.get("metadata") or {}
-        model = (metadata.get("vendor") or {}).get("modelName")
-        if model:
-            return model
-        identifier = device.get("identifier")
-        if identifier:
-            return str(identifier)
-        return f"SmartTag {str(device.get('deviceId', ''))[:8]}"

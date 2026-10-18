@@ -8,11 +8,15 @@ DEFAULT_SIDECAR_URL = "http://192.168.0.125:8788"
 # Coordinator
 UPDATE_INTERVAL_S = 60  # polls sidecar /jwt + /tags; sidecar caches upstream
 
-# The sidecar never exposes these, but if a stale Samsung battery string
-# sneaks through, map it the same way the upstream integration does.
+# Samsung battery enum → estimated %, matching the Samsung Wearable app's
+# semantics (verified live 2026-10-18: the /tag/{uuid} detail payload's
+# item.battery is this enum; the /tags list endpoint reported FULL for
+# every tag, which is wrong for the MEDIUM ones). ONE table is used for
+# every battery read (list metadata fallback, detail payload, geolocation)
+# so the same enum can never map to two different percentages.
 BATTERY_LEVELS = {
     "FULL": 100,
-    "MEDIUM": 50,
-    "LOW": 15,
+    "MEDIUM": 60,
+    "LOW": 25,
     "VERY_LOW": 5,
 }
